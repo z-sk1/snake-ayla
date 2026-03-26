@@ -1,0 +1,953 @@
+import rl
+import fs
+import rand
+import parse
+import math
+
+rl.InitAudio()
+
+rock (
+    Red    = rl.NewColor(255, 0, 0, 255)
+    Green  = rl.NewColor(0, 255, 0, 255)
+    Blue   = rl.NewColor(0, 0, 255, 255)
+    Yellow = rl.NewColor(255, 255, 0, 255)
+
+    Cell  = 30
+)
+
+egg (
+    PlayerColors = []rl.Color{
+        Red,
+        Green,
+        Blue,
+        Yellow,
+    }
+
+    PlayerColorNames = []string{
+        "Red",
+        "Green",
+        "Blue",
+        "Yellow",
+    }
+
+    MenuThemes = []rl.Music{
+        rl.LoadMusic("sounds/ThemeA.ogg"),
+        rl.LoadMusic("sounds/ThemeB.ogg"),
+        rl.LoadMusic("sounds/ThemeC.ogg"),
+    }
+
+    GameThemes = []rl.Music{
+        rl.LoadMusic("sounds/1.ogg"),
+        rl.LoadMusic("sounds/1b.ogg"),
+        rl.LoadMusic("sounds/2.ogg"),
+        rl.LoadMusic("sounds/3.ogg"),
+        rl.LoadMusic("sounds/3b.ogg"),
+        rl.LoadMusic("sounds/4.ogg"),
+        rl.LoadMusic("sounds/5.ogg"),
+        rl.LoadMusic("sounds/5b.ogg"),
+        rl.LoadMusic("sounds/6.ogg"),
+        rl.LoadMusic("sounds/7.ogg"),
+        rl.LoadMusic("sounds/7b.ogg"),
+    }
+
+    DeathTheme = rl.LoadMusic("sounds/DeathTheme.ogg")
+)
+
+fun (m rl.Music) Play(vol float) {
+    rl.PlayMusic(m)
+    rl.SetMusicVolume(m, vol)
+}
+
+fun (m rl.Music) Stop() {
+    rl.StopMusic(m)
+}
+
+g := &Game{Running: yes, State: State.MainMenu}
+
+g.Settings = &Settings{
+    Color:      Green,
+    ColorIndex: 1,
+    Volume:     0.5,
+    Muted:      no,
+}
+
+rl.SetWindowFlags(
+    rl.FlagWindowResizable,
+)
+
+rl.InitWindow(1000, 1000, "Hiya")
+rl.SetExitKey(rl.KeyNil)
+rl.HideCursor()
+
+g.Load()
+why g.Running {
+    ayla rl.ShouldClose() {
+        g.Exit()
+    }
+
+    dt := rl.GetFrameTime()
+
+    g.Update(dt)
+
+    ayla g.Music != nil {
+        rl.UpdateMusic(*g.Music)
+    }
+
+    rl.Clear()
+    g.Draw()
+    rl.Present()
+}
+
+type Game struct {
+    Running    bool
+
+    Player *Player
+    Item   *Item
+
+    PrevState State
+    State     State
+    Menu      *Menu
+    Settings  *Settings
+
+    Music      *rl.Music
+    MusicKind  MusicKind
+    ThemeIndex int
+
+    CursorSnake    []rl.Vector2
+    CursorSnakeLen int
+
+    Angle float
+    Orbit float
+    T     float
+}
+
+enum State {
+    MainMenu
+    Game
+    Dead
+    Paused
+    Settings
+}
+
+enum MusicKind {
+    None
+    Menu
+    Game
+    Death
+}
+
+type Settings struct {
+    Color      rl.Color
+    ColorIndex int
+    Volume     float[0..1]
+    Muted      bool
+}
+
+type Menu struct {
+    Name    string
+    Index   int
+    Buttons []*Button
+}
+
+fun (m *Menu) Update(dt float) {
+    key := rl.GetKeyPressed()
+
+    ayla m.Index < 0 {
+        m.Index = len(m.Buttons) - 1
+    }
+    ayla m.Index >= len(m.Buttons) {
+        m.Index = 0
+    }
+
+    choose key {
+        when rl.KeyW, rl.KeyUp {
+            m.Index--
+        }
+        when rl.KeyS, rl.KeyDown {
+            m.Index++
+        }
+    }
+
+    four i, btn := range m.Buttons {
+        btn.Update(i == m.Index, key, dt)
+    }
+}
+
+fun (m *Menu) Draw() {
+    center := rl.GetWindowSize()
+
+    centerX := center.X / 2
+    centerY := center.Y / 2
+
+    rl.DrawText(m.Name, rl.Vector2{X: centerX - 50, Y: centerY - centerY / 1.25}, 30, Red)
+
+    four i, btn := range m.Buttons {
+        btn.Draw(rl.Vector2{X: centerX - 50, Y: (centerY - centerY / 1.75) + i*50})
+    }
+}
+
+type Button struct {
+    Name      string
+    Selected  bool
+    Color     rl.Color
+    Keys      []int
+    Fn        fun(key int)
+    HeldTimer float
+    Holdable  bool
+    HoldDelay float
+}
+
+fun (b *Button) Pressed(pressed int) {
+    four i, key := range b.Keys {
+        ayla pressed == key {
+            b.Fn(pressed)
+        }
+    }
+}
+
+fun (b *Button) Held(dt float) {
+    anyHeld := no
+
+    four _, k := range b.Keys {
+        ayla rl.IsKeyDown(k) {
+            anyHeld = yes
+            b.HeldTimer += dt
+            ayla b.HeldTimer >= b.HoldDelay {
+                b.HeldTimer = 0
+                b.Fn(k)
+            }
+            kitkat
+        }
+    }
+
+    ayla !anyHeld {
+        b.HeldTimer = 0
+    }
+}
+
+fun (b *Button) Update(selected bool, key int, dt float) {
+    b.Selected = selected
+
+    ayla b.Selected {
+        b.Pressed(key)
+        ayla b.Holdable {
+            b.Held(dt)
+        }
+    }
+}
+
+fun (b *Button) Draw(pos rl.Vector2) {
+    ayla b.Selected {
+        rl.DrawText("> ${b.Name}", pos, 30, b.Color)
+    } elen {
+        rl.DrawText(b.Name, pos, 30, b.Color)
+    }
+}
+
+fun (g *Game) Exit() {
+    four _, m := range MenuThemes {
+        m.Stop()
+        rl.UnloadMusic(m)
+    }
+
+    g.Running = no
+    rl.CloseWindow()
+}
+
+fun (g *Game) SetState(s State) {
+    g.PrevState = g.State
+    g.State = s
+}
+
+fun (g *Game) Load() {
+    choose g.State {
+        when State.MainMenu {
+            ayla g.MusicKind != MusicKind.Menu {
+                g.ThemeIndex = 0
+                g.SetMusic(&MenuThemes[0], MusicKind.Menu, no)
+            }
+
+            g.CursorSnakeLen = 6
+
+            g.Menu = &Menu{
+                Name: "Snake",
+                Buttons: []*Button{
+                    &Button{
+                        Name:  "Play",
+                        Color: Red,
+                        Keys: []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.Game)
+                            g.Load()
+                        },
+                    },
+                    &Button{
+                        Name:  "Settings",
+                        Color: Red,
+                        Keys: []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.Settings)
+                            g.Load()
+                        },
+                    },
+                    &Button{
+                        Name:  "Quit",
+                        Color: Red,
+                        Keys: []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.Exit()
+                        },
+                    },
+                },
+            }
+        }
+
+        when State.Settings {
+            menu := &Menu{
+                Name:  "Settings",
+                Buttons: []*Button{
+                    &Button{
+                        Name:  "Color: ${PlayerColorNames[g.Settings.ColorIndex]}",
+                        Color: g.Settings.Color,
+                        Keys: []int{
+                            rl.KeyLeft,
+                            rl.KeyA,
+                            rl.KeyRight,
+                            rl.KeyD,
+                        },
+                        Holdable:  yes,
+                        HoldDelay: 0.5,
+                        Fn: fun(key int) {
+                            ayla rl.IsKeyDown(rl.KeyA) || rl.IsKeyDown(rl.KeyLeft) {
+                                g.Settings.ColorIndex--
+                            }
+
+                            ayla rl.IsKeyDown(rl.KeyD) || rl.IsKeyDown(rl.KeyRight) {
+                                g.Settings.ColorIndex++
+                            }
+
+                            ayla g.Settings.ColorIndex >= len(PlayerColors) {
+                                g.Settings.ColorIndex = 0
+                            }
+
+                            ayla g.Settings.ColorIndex < 0 {
+                                g.Settings.ColorIndex = len(PlayerColors) - 1
+                            }
+
+                            g.Settings.Color = PlayerColors[g.Settings.ColorIndex]
+                            g.Menu.Buttons[0].Color = PlayerColors[g.Settings.ColorIndex]
+                            g.Menu.Buttons[0].Name = "Color: ${PlayerColorNames[g.Settings.ColorIndex]}"
+                        },
+                    },
+                    &Button{
+                        Name:  "Volume: ${int(g.Settings.Volume * 100)}%",
+                        Color: Green,
+                        Keys: []int{
+                            rl.KeyLeft,
+                            rl.KeyA,
+                            rl.KeyRight,
+                            rl.KeyD,
+                        },
+                        Holdable:  yes,
+                        HoldDelay: 0.05,
+                        Fn: fun(key int) {
+                            ayla rl.IsKeyDown(rl.KeyLeft) || rl.IsKeyDown(rl.KeyA) {
+                                g.Settings.Volume -= 0.01
+                            }
+                            ayla rl.IsKeyDown(rl.KeyRight) || rl.IsKeyDown(rl.KeyD) {
+                                g.Settings.Volume += 0.01
+                            }
+
+                            ayla g.Settings.Volume > 0.99 { g.Settings.Volume = 1.0 }
+                            ayla g.Settings.Volume < 0.01 { g.Settings.Volume = 0.0 }
+
+                            ayla !g.Settings.Muted {
+                                rl.SetMusicVolume(*g.Music, g.Settings.Volume)
+                            }
+
+                            g.Menu.Buttons[1].Name = "Volume: ${int(g.Settings.Volume * 100)}%"
+                        },
+                    },
+                    &Button{
+                        Name:  "Mute: Off",
+                        Color: Red,
+                        Keys: []int{rl.KeySpace, rl.KeyEnter},
+                        Fn: fun(key int) {
+                            g.Settings.Muted = !g.Settings.Muted
+
+                            ayla g.Settings.Muted {
+                                rl.SetMusicVolume(*g.Music, 0)
+                                g.Menu.Buttons[2].Name = "Mute: On"
+                                g.Menu.Buttons[1].Color = Red
+                                g.Menu.Buttons[2].Color = Green
+                            } elen {
+                                rl.SetMusicVolume(*g.Music, g.Settings.Volume)
+                                g.Menu.Buttons[2].Name = "Mute: Off"
+                                g.Menu.Buttons[1].Color = Green
+                                g.Menu.Buttons[2].Color = Red
+                            }
+                        },
+                    },
+                    &Button{
+                        Name:  "Back",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeyEnter,
+                            rl.KeySpace,
+                        },
+                        Fn:    fun(key int) {
+                            g.SetState(g.PrevState)
+                            g.Load()
+                        },
+                    },
+                },
+            }
+
+            ayla g.Settings.Muted {
+                menu.Buttons[1].Color = Red
+                menu.Buttons[2].Color = Green
+                menu.Buttons[2].Name = "Muted: On"
+            }
+
+            g.Menu = menu
+        }
+
+        when State.Game {
+            g.ThemeIndex = 0
+            g.SetMusic(&GameThemes[g.ThemeIndex], MusicKind.Game, no)
+
+            four _, m := range MenuThemes {
+                m.Stop()
+            }
+
+            egg highScore int
+            egg exists bool
+            egg err error
+
+            exists, err = fs.Exists("save/save.txt")
+            ayla err != nil {
+                explode(err)
+            }
+
+            ayla exists {
+                data, err := fs.Read("save/save.txt")
+                ayla err != nil {
+                    explode(err)
+                }
+
+                ayla data != "" {
+                    highScore, err = parse.Int(data)
+                    ayla err != nil {
+                        explode(err)
+                    }
+                } elen {
+                    fs.Write("save/save.txt", "0")
+                }
+            } elen {
+                err := fs.Create("save/save.txt")
+                ayla err != nil {
+                    explode(err)
+                }
+            }
+
+            p := &Player{
+                Body: []rl.Vector2{
+                    rl.Vector2{X: Cell*4, Y: Cell*4},
+                    rl.Vector2{X: Cell*3, Y: Cell*4},
+                    rl.Vector2{X: Cell*2, Y: Cell*4},
+                },
+                Color:     g.Settings.Color,
+                Dir:       Direction.Right,
+                Size:      rl.Vector2{X: Cell, Y: Cell},
+                HighScore: highScore,
+            }
+            g.Player = p
+
+            g.SpawnItem()
+        }
+
+        when State.Dead {
+            g.ThemeIndex = 0
+            g.SetMusic(&DeathTheme, MusicKind.Death, yes)
+
+            g.Menu = &Menu{
+                Name: "You Died",
+                Buttons: []*Button{
+                    &Button{
+                        Name:  "Retry",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.Game)
+                            g.Load()
+                        },
+                    },
+                    &Button{
+                        Name:  "Exit to Main Menu",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.MainMenu)
+                            g.Load()
+                        },
+                    },
+                },
+            }
+        }
+
+        when State.Paused {
+            g.Menu = &Menu{
+                Name: "Paused",
+                Buttons: []*Button{
+                    &Button{
+                        Name:  "Unpause",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.Game)
+                        },
+                    },
+                    &Button{
+                        Name:  "Settings",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.Settings)
+                            g.Load()
+                        },
+                    },
+                    &Button{
+                        Name:  "Exit to Main Menu",
+                        Color: Red,
+                        Keys:  []int{
+                            rl.KeySpace,
+                            rl.KeyEnter,
+                        },
+                        Fn: fun(key int) {
+                            g.SetState(State.MainMenu)
+                            g.Load()
+                        },
+                    },
+                },
+            }
+        }
+    }
+}
+
+fun (g *Game) SetMusic(m *rl.Music, kind MusicKind, looping bool) {
+    ayla g.Music != nil {
+        rl.StopMusic(*g.Music)
+    }
+    g.Music = m
+    g.MusicKind = kind
+
+    rl.PlayMusic(*m)
+    rl.SetMusicLooping(*m, looping)
+
+    ayla g.Settings != nil {
+        ayla g.Settings.Muted {
+            rl.SetMusicVolume(*m, 0)
+        } elen {
+            rl.SetMusicVolume(*m, g.Settings.Volume)
+        }
+    }
+}
+
+fun (g *Game) Update(dt float) {
+    choose g.State {
+        when State.MainMenu {
+            why !rl.IsMusicPlaying(*g.Music) {
+                ayla g.ThemeIndex == len(MenuThemes)-1 {
+                    g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, yes)
+                } elen {
+                    g.ThemeIndex++
+                    g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, no)
+                }
+            }
+
+            g.UpdateCursorSnake()
+            g.Menu.Update(dt)
+        }
+
+        when State.Settings {
+            ayla g.PrevState == State.MainMenu {
+                why !rl.IsMusicPlaying(*g.Music) {
+                    ayla g.ThemeIndex == len(MenuThemes)-1 {
+                        g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, yes)
+                    } elen {
+                        g.ThemeIndex++
+                        g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, no)
+                    }
+                }
+            }
+
+            ayla rl.IsKeyPressed(rl.KeyEsc) {
+                g.SetState(g.PrevState)
+                g.Load()
+            }
+
+            g.Menu.Update(dt)
+        }
+
+        when State.Game {
+            why !rl.IsMusicPlaying(*g.Music) {
+                ayla g.ThemeIndex == len(GameThemes)-1 {
+                    g.SetMusic(&GameThemes[g.ThemeIndex], MusicKind.Game, yes)
+                } elen {
+                    g.ThemeIndex++
+                    g.SetMusic(&GameThemes[g.ThemeIndex], MusicKind.Game, no)
+                }
+            }
+
+            ayla rl.IsKeyPressed(rl.KeyEsc) {
+                g.SetState(State.Paused)
+                g.Load()
+            }
+
+            g.Player.Update(dt)
+
+            ayla g.Player.Dead {
+                g.Player.Dead = no
+                g.SetState(State.Dead)
+                g.Load()
+            }
+
+            ayla g.Player.Head() == g.Item.Pos {
+                choose g.Item.Kind {
+                    when ItemKind.Apple {
+                        g.Player.Grow()
+                        g.SpawnItem()
+                    }
+                }
+            }
+        }
+
+        when State.Dead {
+            g.Menu.Update(dt)
+        }
+
+        when State.Paused {
+            ayla rl.IsKeyPressed(rl.KeyEsc) {
+                g.SetState(State.Game)
+            }
+
+            g.Menu.Update(dt)
+        }
+    }
+}
+
+fun (g *Game) UpdateCursorSnake() {
+    mouse := rl.GetMousePos()
+
+    snappedX := float(int(mouse.X / Cell) * Cell)
+    snappedY := float(int(mouse.Y / Cell) * Cell)
+    head := rl.Vector2{X: snappedX, Y: snappedY}
+
+    ayla len(g.CursorSnake) == 0 {
+        g.CursorSnake = append(g.CursorSnake, head)
+        back
+    }
+
+    prev := g.CursorSnake[0]
+
+    dx := head.X - prev.X
+    dy := head.Y - prev.Y
+
+    steps := int(math.Max(math.Abs(dx), math.Abs(dy)) / Cell)
+
+    ayla steps > 0 {
+        stepX := dx / float(steps)
+        stepY := dy / float(steps)
+
+        four i := 1; i <= steps; i++ {
+            p := rl.Vector2{
+                X: prev.X + stepX*float(i),
+                Y: prev.Y + stepY*float(i),
+            }
+
+            g.CursorSnake = append([]rl.Vector2{p}, g.CursorSnake...)
+        }
+    }
+
+    ayla len(g.CursorSnake) > g.CursorSnakeLen {
+        g.CursorSnake = g.CursorSnake[:g.CursorSnakeLen]
+    }
+}
+
+fun (g *Game) DrawCursorSnake() {
+    four i, s := range g.CursorSnake {
+        rl.DrawRect(s, rl.Vector2{X: Cell, Y: Cell}, g.Settings.Color)
+    }
+}
+
+fun (g *Game) DrawMenuAnimation() {
+    g.Angle += 0.03
+    g.Orbit += 0.02
+    g.T += 0.05
+
+    center := rl.GetWindowSize()
+    cx := center.X / 2
+    cy := center.Y / 2
+
+    orbitRadius := 250
+
+    tx := cx + math.Cos(g.Orbit)*orbitRadius
+    ty := cy + math.Sin(g.Orbit)*orbitRadius
+
+    r := 80
+
+    p1 := rl.Vector2{
+        X: tx + math.Cos(g.Angle)*r,
+        Y: ty + math.Sin(g.Angle)*r,
+    }
+
+    p2 := rl.Vector2{
+        X: tx + math.Cos(g.Angle+2.094)*r,
+        Y: ty + math.Sin(g.Angle+2.094)*r,
+    }
+
+    p3 := rl.Vector2{
+        X: tx + math.Cos(g.Angle+4.188)*r,
+        Y: ty + math.Sin(g.Angle+4.188)*r,
+    }
+
+    red   := int((math.Sin(g.T)+1)*127)
+    green := int((math.Sin(g.T+2)+1)*127)
+    blue  := int((math.Sin(g.T+4)+1)*127)
+
+    col := rl.NewColor(red, green, blue, 255)
+    four i := range 30 {
+        rl.DrawTriangleLines(
+            rl.Vector2{X: p1.X-i*10, Y: p1.Y-i*10},
+            rl.Vector2{X: p2.X-i*10, Y: p2.Y-i*10},
+            rl.Vector2{X: p3.X-i*10, Y: p3.Y-i*10},
+            col,
+        )
+
+        rl.DrawTriangleLines(
+            rl.Vector2{X: cx - (p1.X-cx) + i*10, Y: cy - (p1.Y-cy) + i*10},
+            rl.Vector2{X: cx - (p2.X-cx) + i*10, Y: cy - (p2.Y-cy) + i*10},
+            rl.Vector2{X: cx - (p3.X-cx) + i*10, Y: cy - (p3.Y-cy) + i*10},
+            col,
+        )
+    }
+}
+
+fun (g *Game) Draw() {
+    choose g.State {
+        when State.MainMenu {
+            g.DrawCursorSnake()
+            g.Menu.Draw()
+            g.DrawMenuAnimation()
+        }
+
+        when State.Settings {
+            g.Menu.Draw()
+            g.DrawMenuAnimation()
+        }
+
+        when State.Game {
+            g.Player.Draw()
+            g.Item.Draw()
+
+            center := rl.GetWindowSize()
+
+            cx := center.X / 2
+            cy := center.Y / 2
+
+            rl.DrawText("Score: ${g.Player.Score}", rl.Vector2{X: cx - cx / 1.25, Y: cy - cy / 1.25}, 30, Red)
+            rl.DrawText("High Score: ${g.Player.HighScore}", rl.Vector2{X: cx - cx / 1.25, Y: cy - cy / 1.25 + 50}, 30, Red)
+        }
+
+        when State.Dead {
+            g.Menu.Draw()
+            g.DrawMenuAnimation()
+        }
+
+        when State.Paused {
+            g.Menu.Draw()
+            g.DrawMenuAnimation()
+        }
+    }
+}
+
+fun (g *Game) SpawnItem() {
+    windowSize := rl.GetWindowSize()
+
+    cellsX := int(windowSize.X) / Cell
+    cellsY := int(windowSize.Y) / Cell
+
+    cellX := rand.Int(0, cellsX-1)
+    cellY := rand.Int(0, cellsY-1)
+
+    g.Item = &Item{
+        Pos: rl.Vector2{
+            X: float(cellX * Cell),
+            Y: float(cellY * Cell),
+        },
+        Size: rl.Vector2{
+            X: Cell,
+            Y: Cell,
+        },
+        Kind: ItemKind.Apple,
+    }
+}
+
+enum ItemKind {
+    Apple
+}
+
+type Item struct {
+    Pos  rl.Vector2
+    Size rl.Vector2
+    Kind ItemKind
+}
+
+fun (i *Item) Draw() {
+    choose i.Kind {
+        when ItemKind.Apple {
+            rl.DrawRect(
+                i.Pos,
+                i.Size,
+                Red,
+            )
+        }
+    }
+}
+
+enum Direction {
+    Left
+    Right
+    Up
+    Down
+}
+
+type Player struct {
+    Body        []rl.Vector2
+    Dir         Direction
+    Size        rl.Vector2
+    Color       rl.Color
+    Dead        bool
+
+    GrowPending int
+    Score       int
+    HighScore   int
+    MoveTimer   float
+}
+
+fun (p *Player) Input() {
+    choose rl.GetKeyPressed() {
+        when rl.KeyW, rl.KeyUp    { ayla p.Dir != Direction.Down  { p.Dir = Direction.Up    } }
+        when rl.KeyA, rl.KeyLeft  { ayla p.Dir != Direction.Right { p.Dir = Direction.Left  } }
+        when rl.KeyS, rl.KeyDown  { ayla p.Dir != Direction.Up    { p.Dir = Direction.Down  } }
+        when rl.KeyD, rl.KeyRight { ayla p.Dir != Direction.Left  { p.Dir = Direction.Right } }
+    }
+}
+
+fun (p *Player) Update(dt float) {
+    p.Input()
+
+    speed := 0.03
+    p.MoveTimer += dt
+
+    ayla p.MoveTimer < speed {
+        back
+    }
+
+    p.MoveTimer = 0
+
+    p.CheckCollisions()
+
+    head := p.Body[0]
+    newHead := head
+
+    choose p.Dir {
+        when Direction.Right { newHead.X += p.Size.X }
+        when Direction.Left  { newHead.X -= p.Size.X }
+        when Direction.Up    { newHead.Y -= p.Size.Y }
+        when Direction.Down  { newHead.Y += p.Size.Y }
+    }
+
+    windowSize := rl.GetWindowSize()
+
+    cellsX := int(windowSize.X) / int(p.Size.X)
+    cellsY := int(windowSize.Y) / int(p.Size.Y)
+
+    ayla newHead.X < 0 {
+        newHead.X = float((cellsX-1)) * p.Size.X
+    }
+
+    ayla newHead.X >= float(cellsX)*p.Size.X {
+        newHead.X = 0
+    }
+
+    ayla newHead.Y < 0 {
+        newHead.Y = float((cellsY-1)) * p.Size.Y
+    }
+
+    ayla newHead.Y >= float(cellsY)*p.Size.Y {
+        newHead.Y = 0
+    }
+
+    p.Body = append([]rl.Vector2{newHead}, p.Body...)
+
+    ayla p.GrowPending > 0 {
+        p.GrowPending--
+    } elen {
+        p.Body = p.Body[:len(p.Body)-1]
+    }
+}
+
+fun (p *Player) CheckCollisions() {
+    four i := 1; i < len(p.Body); i++ {
+        ayla p.Head() == p.Body[i] {
+            p.Dead = yes
+        }
+    }
+}
+
+fun (p *Player) Draw() {
+    four _, s := range p.Body {
+        rl.DrawRect(
+            s,
+            p.Size,
+            p.Color,
+        )
+    }
+}
+
+fun (p *Player) Head() (rl.Vector2) {
+    back p.Body[0]
+}
+
+fun (p *Player) Grow() {
+    p.GrowPending++
+    p.Score++
+
+    ayla p.Score >= p.HighScore {
+        p.HighScore = p.Score
+    }
+
+    fs.Write("save/save.txt", parse.String(p.HighScore))
+}
