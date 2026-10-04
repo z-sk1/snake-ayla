@@ -1,0 +1,2 @@
+2026/04/19 12:35:03 ENTER scope 0xc0001ab010
+2026/04/19 12:35:03 buildInScope panic (scope=0xc0001ab010): "invalid memory address or nil pointer dereference"

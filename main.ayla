@@ -1,12 +1,19 @@
 import rl
 import fs
 import rand
-import parse
+import conv
 import math
 
 rl.InitAudio()
+rl.SetWindowFlags(
+    rl.FlagWindowResizable,
+)
 
-rock (
+rl.InitWindow(1000, 1000, "Hiya")
+rl.SetExitKey(rl.KeyNil)
+rl.HideCursor()
+
+keep (
     Red    = rl.NewColor(255, 0, 0, 255)
     Green  = rl.NewColor(0, 255, 0, 255)
     Blue   = rl.NewColor(0, 0, 255, 255)
@@ -15,7 +22,7 @@ rock (
     Cell  = 30
 )
 
-egg (
+say (
     PlayerColors = []rl.Color{
         Red,
         Green,
@@ -62,25 +69,19 @@ fun (m rl.Music) Stop() {
     rl.StopMusic(m)
 }
 
-g := &Game{Running: yes, State: State.MainMenu}
-
-g.Settings = &Settings{
-    Color:      Green,
-    ColorIndex: 1,
-    Volume:     0.5,
-    Muted:      no,
+g := &Game{
+    Running: yes,
+    State: State.MainMenu,
+    Settings: &Settings{
+        Color:      Green,
+        ColorIndex: 1,
+        Volume:     0.5,
+        Muted:      no,
+    },
 }
 
-rl.SetWindowFlags(
-    rl.FlagWindowResizable,
-)
-
-rl.InitWindow(1000, 1000, "Hiya")
-rl.SetExitKey(rl.KeyNil)
-rl.HideCursor()
-
 g.Load()
-why g.Running {
+while g.Running {
     ayla rl.ShouldClose() {
         g.Exit()
     }
@@ -99,7 +100,7 @@ why g.Running {
 }
 
 type Game struct {
-    Running    bool
+    Running bool
 
     Player *Player
     Item   *Item
@@ -121,7 +122,7 @@ type Game struct {
     T     float
 }
 
-enum State {
+enum State int {
     MainMenu
     Game
     Dead
@@ -129,7 +130,7 @@ enum State {
     Settings
 }
 
-enum MusicKind {
+enum MusicKind int {
     None
     Menu
     Game
@@ -139,7 +140,7 @@ enum MusicKind {
 type Settings struct {
     Color      rl.Color
     ColorIndex int
-    Volume     float[0..1]
+    Volume     float<0..1>
     Muted      bool
 }
 
@@ -168,7 +169,7 @@ fun (m *Menu) Update(dt float) {
         }
     }
 
-    four i, btn := range m.Buttons {
+    for i, btn := range m.Buttons {
         btn.Update(i == m.Index, key, dt)
     }
 }
@@ -181,7 +182,7 @@ fun (m *Menu) Draw() {
 
     rl.DrawText(m.Name, rl.Vector2{X: centerX - 50, Y: centerY - centerY / 1.25}, 30, Red)
 
-    four i, btn := range m.Buttons {
+    for i, btn := range m.Buttons {
         btn.Draw(rl.Vector2{X: centerX - 50, Y: (centerY - centerY / 1.75) + i*50})
     }
 }
@@ -198,7 +199,7 @@ type Button struct {
 }
 
 fun (b *Button) Pressed(pressed int) {
-    four i, key := range b.Keys {
+    for i, key := range b.Keys {
         ayla pressed == key {
             b.Fn(pressed)
         }
@@ -208,7 +209,7 @@ fun (b *Button) Pressed(pressed int) {
 fun (b *Button) Held(dt float) {
     anyHeld := no
 
-    four _, k := range b.Keys {
+    for _, k := range b.Keys {
         ayla rl.IsKeyDown(k) {
             anyHeld = yes
             b.HeldTimer += dt
@@ -216,7 +217,7 @@ fun (b *Button) Held(dt float) {
                 b.HeldTimer = 0
                 b.Fn(k)
             }
-            kitkat
+            snap
         }
     }
 
@@ -245,7 +246,7 @@ fun (b *Button) Draw(pos rl.Vector2) {
 }
 
 fun (g *Game) Exit() {
-    four _, m := range MenuThemes {
+    for _, m := range MenuThemes {
         m.Stop()
         rl.UnloadMusic(m)
     }
@@ -425,13 +426,13 @@ fun (g *Game) Load() {
             g.ThemeIndex = 0
             g.SetMusic(&GameThemes[g.ThemeIndex], MusicKind.Game, no)
 
-            four _, m := range MenuThemes {
+            for _, m := range MenuThemes {
                 m.Stop()
             }
 
-            egg highScore int
-            egg exists bool
-            egg err error
+            say highScore int
+            say exists bool
+            say err error
 
             exists, err = fs.Exists("save/save.txt")
             ayla err != nil {
@@ -445,7 +446,7 @@ fun (g *Game) Load() {
                 }
 
                 ayla data != "" {
-                    highScore, err = parse.Int(data)
+                    highScore, err = conv.Int(data)
                     ayla err != nil {
                         explode(err)
                     }
@@ -577,7 +578,7 @@ fun (g *Game) SetMusic(m *rl.Music, kind MusicKind, looping bool) {
 fun (g *Game) Update(dt float) {
     choose g.State {
         when State.MainMenu {
-            why !rl.IsMusicPlaying(*g.Music) {
+            while !rl.IsMusicPlaying(*g.Music) {
                 ayla g.ThemeIndex == len(MenuThemes)-1 {
                     g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, yes)
                 } elen {
@@ -592,7 +593,7 @@ fun (g *Game) Update(dt float) {
 
         when State.Settings {
             ayla g.PrevState == State.MainMenu {
-                why !rl.IsMusicPlaying(*g.Music) {
+                while !rl.IsMusicPlaying(*g.Music) {
                     ayla g.ThemeIndex == len(MenuThemes)-1 {
                         g.SetMusic(&MenuThemes[g.ThemeIndex], MusicKind.Menu, yes)
                     } elen {
@@ -611,7 +612,7 @@ fun (g *Game) Update(dt float) {
         }
 
         when State.Game {
-            why !rl.IsMusicPlaying(*g.Music) {
+            while !rl.IsMusicPlaying(*g.Music) {
                 ayla g.ThemeIndex == len(GameThemes)-1 {
                     g.SetMusic(&GameThemes[g.ThemeIndex], MusicKind.Game, yes)
                 } elen {
@@ -658,7 +659,7 @@ fun (g *Game) Update(dt float) {
 }
 
 fun (g *Game) UpdateCursorSnake() {
-    mouse := rl.GetMousePos()
+    mouse := rl.GetMousePosition()
 
     snappedX := float(int(mouse.X / Cell) * Cell)
     snappedY := float(int(mouse.Y / Cell) * Cell)
@@ -666,7 +667,7 @@ fun (g *Game) UpdateCursorSnake() {
 
     ayla len(g.CursorSnake) == 0 {
         g.CursorSnake = append(g.CursorSnake, head)
-        back
+        give
     }
 
     prev := g.CursorSnake[0]
@@ -680,7 +681,7 @@ fun (g *Game) UpdateCursorSnake() {
         stepX := dx / float(steps)
         stepY := dy / float(steps)
 
-        four i := 1; i <= steps; i++ {
+        for i := 1; i <= steps; i++ {
             p := rl.Vector2{
                 X: prev.X + stepX*float(i),
                 Y: prev.Y + stepY*float(i),
@@ -696,8 +697,12 @@ fun (g *Game) UpdateCursorSnake() {
 }
 
 fun (g *Game) DrawCursorSnake() {
-    four i, s := range g.CursorSnake {
-        rl.DrawRect(s, rl.Vector2{X: Cell, Y: Cell}, g.Settings.Color)
+    for _, s := range g.CursorSnake {
+        rl.DrawRectangle(
+            s,
+            rl.Vector2{X: Cell, Y: Cell},
+            g.Settings.Color,
+        )
     }
 }
 
@@ -737,7 +742,7 @@ fun (g *Game) DrawMenuAnimation() {
     blue  := int((math.Sin(g.T+4)+1)*127)
 
     col := rl.NewColor(red, green, blue, 255)
-    four i := range 30 {
+    for i := range 40 {
         rl.DrawTriangleLines(
             rl.Vector2{X: p1.X-i*10, Y: p1.Y-i*10},
             rl.Vector2{X: p2.X-i*10, Y: p2.Y-i*10},
@@ -814,7 +819,7 @@ fun (g *Game) SpawnItem() {
     }
 }
 
-enum ItemKind {
+enum ItemKind int {
     Apple
 }
 
@@ -827,7 +832,7 @@ type Item struct {
 fun (i *Item) Draw() {
     choose i.Kind {
         when ItemKind.Apple {
-            rl.DrawRect(
+            rl.DrawRectangle(
                 i.Pos,
                 i.Size,
                 Red,
@@ -836,7 +841,7 @@ fun (i *Item) Draw() {
     }
 }
 
-enum Direction {
+enum Direction int {
     Left
     Right
     Up
@@ -872,7 +877,7 @@ fun (p *Player) Update(dt float) {
     p.MoveTimer += dt
 
     ayla p.MoveTimer < speed {
-        back
+        give
     }
 
     p.MoveTimer = 0
@@ -920,7 +925,7 @@ fun (p *Player) Update(dt float) {
 }
 
 fun (p *Player) CheckCollisions() {
-    four i := 1; i < len(p.Body); i++ {
+    for i := 1; i < len(p.Body); i++ {
         ayla p.Head() == p.Body[i] {
             p.Dead = yes
         }
@@ -928,8 +933,8 @@ fun (p *Player) CheckCollisions() {
 }
 
 fun (p *Player) Draw() {
-    four _, s := range p.Body {
-        rl.DrawRect(
+    for _, s := range p.Body {
+        rl.DrawRectangle(
             s,
             p.Size,
             p.Color,
@@ -938,7 +943,7 @@ fun (p *Player) Draw() {
 }
 
 fun (p *Player) Head() (rl.Vector2) {
-    back p.Body[0]
+    give p.Body[0]
 }
 
 fun (p *Player) Grow() {
@@ -949,5 +954,5 @@ fun (p *Player) Grow() {
         p.HighScore = p.Score
     }
 
-    fs.Write("save/save.txt", parse.String(p.HighScore))
+    fs.Write("save/save.txt", conv.String(p.HighScore))
 }
